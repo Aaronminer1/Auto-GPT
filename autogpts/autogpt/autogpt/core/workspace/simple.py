@@ -3,7 +3,7 @@ import logging
 import typing
 from pathlib import Path
 
-from pydantic import SecretField
+from pydantic.v1 import SecretField
 
 from autogpt.core.configuration import (
     Configurable,

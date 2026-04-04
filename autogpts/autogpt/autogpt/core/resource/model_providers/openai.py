@@ -7,7 +7,7 @@ from typing import Callable, ParamSpec, TypeVar
 
 import openai
 import tiktoken
-from openai.error import APIError, RateLimitError
+from openai import AsyncOpenAI, APIStatusError, RateLimitError
 
 from autogpt.core.configuration import (
     Configurable,
@@ -61,6 +61,16 @@ class OpenAIModelName(str, enum.Enum):
     GPT4 = GPT4_ROLLING
     GPT4_32k = GPT4_ROLLING_32k
 
+    # Ollama models (served locally via OpenAI-compatible API)
+    NEMOTRON_SUPER = "nemotron-3-super:cloud"
+    GLM5 = "glm-5:cloud"
+    GEMINI_FLASH = "gemini-3-flash-preview:cloud"
+    GPT_OSS_120B = "gpt-oss:120b-cloud"
+    GPT_OSS_20B = "gpt-oss:20b"
+    GLM47_FLASH = "glm-4.7-flash"
+    MINISTRAL_14B = "ministral-3:14b"
+    QWEN3_VL_8B = "qwen3-vl:8b"
+
 
 OPEN_AI_EMBEDDING_MODELS = {
     OpenAIModelName.ADA: EmbeddingModelInfo(
@@ -112,6 +122,79 @@ OPEN_AI_CHAT_MODELS = {
             completion_token_cost=0.12 / 1000,
             max_tokens=32768,
             has_function_call_api=True,
+        ),
+        # Ollama models (OpenAI-compatible, served at http://localhost:11434/v1)
+        ChatModelInfo(
+            name=OpenAIModelName.NEMOTRON_SUPER,
+            service=ModelProviderService.CHAT,
+            provider_name=ModelProviderName.OPENAI,
+            prompt_token_cost=0.0,
+            completion_token_cost=0.0,
+            max_tokens=131072,
+            has_function_call_api=False,
+        ),
+        ChatModelInfo(
+            name=OpenAIModelName.GLM5,
+            service=ModelProviderService.CHAT,
+            provider_name=ModelProviderName.OPENAI,
+            prompt_token_cost=0.0,
+            completion_token_cost=0.0,
+            max_tokens=131072,
+            has_function_call_api=False,
+        ),
+        ChatModelInfo(
+            name=OpenAIModelName.GEMINI_FLASH,
+            service=ModelProviderService.CHAT,
+            provider_name=ModelProviderName.OPENAI,
+            prompt_token_cost=0.0,
+            completion_token_cost=0.0,
+            max_tokens=131072,
+            has_function_call_api=False,
+        ),
+        ChatModelInfo(
+            name=OpenAIModelName.GPT_OSS_120B,
+            service=ModelProviderService.CHAT,
+            provider_name=ModelProviderName.OPENAI,
+            prompt_token_cost=0.0,
+            completion_token_cost=0.0,
+            max_tokens=131072,
+            has_function_call_api=False,
+        ),
+        ChatModelInfo(
+            name=OpenAIModelName.GPT_OSS_20B,
+            service=ModelProviderService.CHAT,
+            provider_name=ModelProviderName.OPENAI,
+            prompt_token_cost=0.0,
+            completion_token_cost=0.0,
+            max_tokens=32768,
+            has_function_call_api=False,
+        ),
+        ChatModelInfo(
+            name=OpenAIModelName.GLM47_FLASH,
+            service=ModelProviderService.CHAT,
+            provider_name=ModelProviderName.OPENAI,
+            prompt_token_cost=0.0,
+            completion_token_cost=0.0,
+            max_tokens=32768,
+            has_function_call_api=False,
+        ),
+        ChatModelInfo(
+            name=OpenAIModelName.MINISTRAL_14B,
+            service=ModelProviderService.CHAT,
+            provider_name=ModelProviderName.OPENAI,
+            prompt_token_cost=0.0,
+            completion_token_cost=0.0,
+            max_tokens=32768,
+            has_function_call_api=False,
+        ),
+        ChatModelInfo(
+            name=OpenAIModelName.QWEN3_VL_8B,
+            service=ModelProviderService.CHAT,
+            provider_name=ModelProviderName.OPENAI,
+            prompt_token_cost=0.0,
+            completion_token_cost=0.0,
+            max_tokens=32768,
+            has_function_call_api=False,
         ),
     ]
 }
@@ -190,17 +273,33 @@ class OpenAIProvider(
 
         self._logger = logger
 
+        # Build the async OpenAI client from stored credentials
+        creds = settings.credentials.unmasked()
+        api_key = creds.get("api_key") or "ollama"
+        api_base = creds.get("api_base")
+        client_kwargs: dict = {"api_key": api_key}
+        if api_base:
+            client_kwargs["base_url"] = api_base
+        self._client = AsyncOpenAI(**client_kwargs)
+
         retry_handler = _OpenAIRetryHandler(
             logger=self._logger,
             num_retries=self._configuration.retries_per_request,
         )
 
-        self._create_chat_completion = retry_handler(_create_chat_completion)
-        self._create_embedding = retry_handler(_create_embedding)
+        self._create_chat_completion = retry_handler(
+            functools.partial(_create_chat_completion, self._client)
+        )
+        self._create_embedding = retry_handler(
+            functools.partial(_create_embedding, self._client)
+        )
 
     def get_token_limit(self, model_name: str) -> int:
         """Get the token limit for a given model."""
-        return OPEN_AI_MODELS[model_name].max_tokens
+        if model_name in OPEN_AI_MODELS:
+            return OPEN_AI_MODELS[model_name].max_tokens
+        # Unknown/new model: assume a large context window
+        return 131072
 
     def get_remaining_budget(self) -> float:
         """Get the remaining budget."""
@@ -208,7 +307,10 @@ class OpenAIProvider(
 
     @classmethod
     def get_tokenizer(cls, model_name: OpenAIModelName) -> ModelTokenizer:
-        return tiktoken.encoding_for_model(model_name)
+        try:
+            return tiktoken.encoding_for_model(model_name)
+        except KeyError:
+            return tiktoken.get_encoding("cl100k_base")
 
     @classmethod
     def count_tokens(cls, text: str, model_name: OpenAIModelName) -> int:
@@ -235,24 +337,25 @@ class OpenAIProvider(
             tokens_per_name = 1
             encoding_model = "gpt-4"
         else:
-            raise NotImplementedError(
-                f"count_message_tokens() is not implemented for model {model_name}.\n"
-                " See https://github.com/openai/openai-python/blob/main/chatml.md for"
-                " information on how messages are converted to tokens."
-            )
+            # Non-OpenAI models (e.g. Ollama): fall back to cl100k_base encoding
+            tokens_per_message = 3
+            tokens_per_name = 1
+            encoding_model = None
         try:
-            encoding = tiktoken.encoding_for_model(encoding_model)
+            if encoding_model:
+                encoding = tiktoken.encoding_for_model(encoding_model)
+            else:
+                encoding = tiktoken.get_encoding("cl100k_base")
         except KeyError:
-            cls._logger.warn(
-                f"Model {model_name} not found. Defaulting to cl100k_base encoding."
-            )
             encoding = tiktoken.get_encoding("cl100k_base")
 
         num_tokens = 0
         for message in messages:
             num_tokens += tokens_per_message
             for key, value in message.dict().items():
-                num_tokens += len(encoding.encode(value))
+                if value is None:
+                    continue
+                num_tokens += len(encoding.encode(str(value)))
                 if key == "name":
                     num_tokens += tokens_per_name
         num_tokens += 3  # every reply is primed with <|start|>assistant<|message|>
@@ -278,7 +381,7 @@ class OpenAIProvider(
             "completion_tokens_used": response.usage.completion_tokens,
         }
 
-        response_message = response.choices[0].message.to_dict_recursive()
+        response_message = response.choices[0].message.model_dump()
         response = ChatModelResponse(
             response=response_message,
             parsed_result=completion_parser(response_message),
@@ -301,11 +404,11 @@ class OpenAIProvider(
         response_args = {
             "model_info": OPEN_AI_EMBEDDING_MODELS[model_name],
             "prompt_tokens_used": response.usage.prompt_tokens,
-            "completion_tokens_used": response.usage.completion_tokens,
+            "completion_tokens_used": response.usage.total_tokens - response.usage.prompt_tokens,
         }
         response = EmbeddingModelResponse(
             **response_args,
-            embedding=embedding_parser(response.embeddings[0]),
+            embedding=embedding_parser(response.data[0].embedding),
         )
         self._budget.update_usage_and_cost(response)
         return response
@@ -329,10 +432,11 @@ class OpenAIProvider(
         completion_kwargs = {
             "model": model_name,
             **kwargs,
-            **self._credentials.unmasked(),
         }
         if functions:
-            completion_kwargs["functions"] = [f.schema for f in functions]
+            completion_kwargs["tools"] = [
+                {"type": "function", "function": f.schema} for f in functions
+            ]
 
         return completion_kwargs
 
@@ -354,7 +458,6 @@ class OpenAIProvider(
         embedding_kwargs = {
             "model": model_name,
             **kwargs,
-            **self._credentials.unmasked(),
         }
 
         return embedding_kwargs
@@ -363,38 +466,23 @@ class OpenAIProvider(
         return "OpenAIProvider()"
 
 
-async def _create_embedding(text: str, *_, **kwargs) -> openai.Embedding:
-    """Embed text using the OpenAI API.
-
-    Args:
-        text str: The text to embed.
-        model str: The name of the model to use.
-
-    Returns:
-        str: The embedding.
-    """
-    return await openai.Embedding.acreate(
+async def _create_embedding(client: AsyncOpenAI, text: str, *_, **kwargs):
+    """Embed text using the OpenAI API."""
+    return await client.embeddings.create(
         input=[text],
         **kwargs,
     )
 
 
 async def _create_chat_completion(
-    messages: list[ChatMessage], *_, **kwargs
-) -> openai.Completion:
-    """Create a chat completion using the OpenAI API.
-
-    Args:
-        messages: The prompt to use.
-
-    Returns:
-        The completion.
-    """
+    client: AsyncOpenAI, messages: list[ChatMessage], *_, **kwargs
+):
+    """Create a chat completion using the OpenAI API."""
     raw_messages = [
         message.dict(include={"role", "content", "function_call", "name"})
         for message in messages
     ]
-    return await openai.ChatCompletion.acreate(
+    return await client.chat.completions.create(
         messages=raw_messages,
         **kwargs,
     )
@@ -452,8 +540,8 @@ class _OpenAIRetryHandler:
                         raise
                     self._log_rate_limit_error()
 
-                except APIError as e:
-                    if (e.http_status != 502) or (attempt == num_attempts):
+                except APIStatusError as e:
+                    if (e.status_code != 502) or (attempt == num_attempts):
                         raise
 
                 self._backoff(attempt)

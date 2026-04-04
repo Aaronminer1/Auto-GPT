@@ -6,7 +6,7 @@ from typing import Literal
 
 import ftfy
 import numpy as np
-from pydantic import BaseModel
+from pydantic.v1 import BaseModel
 
 from autogpt.config import Config
 from autogpt.core.resource.model_providers import ChatMessage

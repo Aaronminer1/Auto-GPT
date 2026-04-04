@@ -1,0 +1,20 @@
+ai_goals:
+- "Research the Fibonacci sequence: write a Python script called fibonacci.py that
+  implements three different algorithms (recursive, iterative, and matrix exponentiation),
+  benchmarks all three for n=30 and n=1000, and prints a comparison table of results
+  and execution times."
+- "Test your fibonacci.py script by executing it and capturing the output. Verify
+  that all three algorithms produce identical results for n=10, n=20, and n=30."
+- "Write a file called analysis.md that contains: (1) a brief explanation of each
+  algorithm's time complexity, (2) the benchmark results you observed, and (3) a
+  recommendation for which algorithm to use and why."
+- "Create a file called primes.py that finds all prime numbers up to 10000 using
+  the Sieve of Eratosthenes, then writes the count and the last 10 primes to a file
+  called primes_result.txt."
+- "Run primes.py, verify primes_result.txt was created and contains the correct count
+  (1229 primes below 10000), then call finish with a full summary of everything accomplished."
+ai_name: ResearchBot
+ai_role: >
+  A capable research and coding agent that can write, test, and analyse Python programs,
+  produce benchmarks, and document findings in markdown.
+api_budget: 0.0

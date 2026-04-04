@@ -3,9 +3,6 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
-import openai
-from openai import Model
-
 from autogpt.core.resource.model_providers.openai import OPEN_AI_MODELS
 from autogpt.core.resource.model_providers.schema import ChatModelInfo
 from autogpt.singleton import Singleton
@@ -39,6 +36,11 @@ class ApiManager(metaclass=Singleton):
         """
         # the .model property in API responses can contain version suffixes like -v2
         model = model[:-3] if model.endswith("-v2") else model
+        if model not in OPEN_AI_MODELS:
+            logger.debug(f"Unknown model '{model}', skipping cost tracking.")
+            self.total_prompt_tokens += prompt_tokens
+            self.total_completion_tokens += completion_tokens
+            return
         model_info = OPEN_AI_MODELS[model]
 
         self.total_prompt_tokens += prompt_tokens
@@ -96,16 +98,15 @@ class ApiManager(metaclass=Singleton):
         """
         return self.total_budget
 
-    def get_models(self, **openai_credentials) -> List[Model]:
+    def get_models(self, **openai_credentials) -> List[str]:
         """
-        Get list of available GPT models.
-
-        Returns:
-        list: List of available GPT models.
-
+        Get list of available GPT model names from the registry.
+        (Previously fetched from OpenAI API; now returns locally registered models.)
         """
         if self.models is None:
-            all_models = openai.Model.list(**openai_credentials)["data"]
-            self.models = [model for model in all_models if "gpt" in model["id"]]
-
+            self.models = [
+                type("Model", (), {"id": name})()
+                for name in OPEN_AI_MODELS.keys()
+                if "gpt" in name or "nemotron" in name or "glm" in name
+            ]
         return self.models

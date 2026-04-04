@@ -9,11 +9,12 @@ from types import FrameType
 from typing import Optional
 
 from colorama import Fore, Style
-from pydantic import SecretStr
+from pydantic.v1 import SecretStr
 
 from autogpt.agents import AgentThoughts, CommandArgs, CommandName
 from autogpt.agents.agent import Agent, AgentConfiguration, AgentSettings
-from autogpt.agents.utils.exceptions import InvalidAgentResponseError
+from autogpt.agents.task_planner import TaskPlan, create_task_plan
+from autogpt.agents.utils.exceptions import InvalidAgentResponseError, TaskComplete
 from autogpt.app.configurator import create_config
 from autogpt.app.setup import interactive_ai_config_setup
 from autogpt.app.spinner import Spinner
@@ -60,6 +61,7 @@ async def run_auto_gpt(
     working_directory: Path,
     workspace_directory: str | Path,
     install_plugin_deps: bool,
+    resume: bool = False,
     ai_name: Optional[str] = None,
     ai_role: Optional[str] = None,
     ai_goals: tuple[str] = tuple(),
@@ -170,7 +172,8 @@ async def run_auto_gpt(
     # Initialize memory and make sure it is empty.
     # this is particularly important for indexing and referencing pinecone memory
     memory = get_memory(config)
-    memory.clear()
+    if not resume:
+        memory.clear()
     print_attribute("Configured Memory", memory.__class__.__name__)
 
     print_attribute("Configured Browser", config.selenium_web_browser)
@@ -199,6 +202,32 @@ async def run_auto_gpt(
         memory=memory,
         legacy_config=config,
     )
+
+    # Attach task plan (try loading existing plan first, else create new one)
+    workspace_path = config.workspace_path
+    existing_plan = TaskPlan.load(workspace_path)
+    if existing_plan and not existing_plan.is_complete:
+        logger.info(
+            "Resuming existing task plan.",
+            extra={"title": "PLANNING:", "title_color": Fore.CYAN},
+        )
+        agent.task_plan = existing_plan
+    else:
+        try:
+            plan = await create_task_plan(
+                goals=list(ai_config.ai_goals),
+                llm_provider=llm_provider,
+                model_name=config.smart_llm,
+            )
+            plan.save(workspace_path)
+            agent.task_plan = plan
+            logger.info(
+                f"Task plan created: {plan.goal_summary} "
+                f"({len(plan.subtasks)} subtasks)",
+                extra={"title": "PLANNING:", "title_color": Fore.CYAN},
+            )
+        except Exception as e:
+            logger.warning(f"Task planning failed, continuing without plan: {e}")
 
     await run_interaction_loop(agent)
 
@@ -298,6 +327,8 @@ async def run_interaction_loop(
 
     # Keep track of consecutive failures of the agent
     consecutive_failures = 0
+    # Track (command, args_hash) → consecutive failure count for error recovery
+    command_failure_counts: dict[str, int] = {}
 
     while cycles_remaining > 0:
         logger.debug(f"Cycle budget: {cycle_budget}; remaining: {cycles_remaining}")
@@ -394,14 +425,100 @@ async def run_interaction_loop(
         if not command_name:
             continue
 
-        result = await agent.execute(command_name, command_args, user_input)
+        try:
+            result = await agent.execute(command_name, command_args, user_input)
+        except TaskComplete as tc:
+            _handle_task_complete(tc, agent, ai_config, legacy_config, logger)
+            return
 
         if result.status == "success":
             logger.info(result, extra={"title": "SYSTEM:", "title_color": Fore.YELLOW})
+            # Reset failure counter for this command
+            cmd_key = f"{command_name}:{sorted(command_args.items())}"
+            command_failure_counts.pop(cmd_key, None)
+            # Advance task plan to next subtask
+            if agent.task_plan and not agent.task_plan.is_complete:
+                agent.task_plan.advance()
+                try:
+                    agent.task_plan.save(legacy_config.workspace_path)
+                except Exception:
+                    pass
         elif result.status == "error":
             logger.warn(
                 f"Command {command_name} returned an error: {result.error or result.reason}"
             )
+            # Track repeated failures for error recovery
+            cmd_key = f"{command_name}:{sorted(command_args.items())}"
+            command_failure_counts[cmd_key] = command_failure_counts.get(cmd_key, 0) + 1
+            fail_count = command_failure_counts[cmd_key]
+            if fail_count == 2:
+                logger.warn(
+                    f"Command '{command_name}' has failed {fail_count} times with the "
+                    "same arguments. You MUST try a completely different approach next cycle.",
+                    extra={"title": "RECOVERY HINT:", "title_color": Fore.YELLOW},
+                )
+            elif fail_count >= 3:
+                logger.warn(
+                    f"Command '{command_name}' has failed {fail_count} times. "
+                    "Pausing for user input.",
+                    extra={"title": "STUCK:", "title_color": Fore.RED},
+                )
+                # Force a user intervention on the next cycle
+                cycles_remaining = 1
+
+
+def _handle_task_complete(
+    tc: TaskComplete,
+    agent: Agent,
+    ai_config,
+    legacy_config,
+    logger,
+) -> None:
+    """Write a session summary and mark the task plan complete on graceful finish."""
+    logger.info(
+        f"Task completed: {tc.reason}",
+        extra={"title": "DONE:", "title_color": Fore.GREEN},
+    )
+    # Mark plan fully complete and save
+    if agent.task_plan:
+        for t in agent.task_plan.subtasks:
+            if t.status not in ("complete", "failed"):
+                t.status = "complete"
+        try:
+            agent.task_plan.save(legacy_config.workspace_path)
+        except Exception:
+            pass
+
+    # Write a human-readable session summary
+    try:
+        from datetime import datetime as _dt
+
+        summary_path = legacy_config.workspace_path / "session_summary.md"
+        lines = [
+            f"# AutoGPT Session Summary\n",
+            f"**Completed:** {_dt.now().strftime('%Y-%m-%d %H:%M:%S')}\n",
+            f"**Agent:** {ai_config.ai_name}\n",
+            f"**Goals:**\n",
+        ]
+        for g in ai_config.ai_goals:
+            lines.append(f"- {g}\n")
+        lines.append(f"\n## Completion Reason\n\n{tc.reason}\n")
+        if agent.task_plan:
+            lines.append(f"\n## Task Plan Status\n\n{agent.task_plan.format_status()}\n")
+        lines.append(f"\n## Steps Taken\n\n")
+        for i, ep in enumerate(agent.event_history, 1):
+            status = ep.result.status if ep.result else "did_not_finish"
+            lines.append(
+                f"{i}. `{ep.action.format_call()}` → {status}\n"
+            )
+        summary_path.write_text("".join(lines))
+        logger.info(
+            f"Session summary written to {summary_path}",
+            extra={"title": "SUMMARY:", "title_color": Fore.CYAN},
+        )
+    except Exception as e:
+        logger.warning(f"Could not write session summary: {e}")
+
 
 
 def update_user(

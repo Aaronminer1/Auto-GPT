@@ -1,7 +1,7 @@
 import abc
 import enum
 
-from pydantic import SecretBytes, SecretField, SecretStr
+from pydantic.v1 import SecretBytes, SecretStr
 
 from autogpt.core.configuration import (
     SystemConfiguration,
@@ -43,7 +43,6 @@ class ProviderCredentials(SystemConfiguration):
         json_encoders = {
             SecretStr: lambda v: v.get_secret_value() if v else None,
             SecretBytes: lambda v: v.get_secret_value() if v else None,
-            SecretField: lambda v: v.get_secret_value() if v else None,
         }
 
 

@@ -5,7 +5,7 @@ from textwrap import indent
 from typing import Literal, Optional
 
 from jsonschema import Draft7Validator
-from pydantic import BaseModel
+from pydantic.v1 import BaseModel
 
 
 class JSONSchema(BaseModel):

@@ -8,6 +8,9 @@ from litellm import completion, acompletion, AuthenticationError, InvalidRequest
 
 LOG = ForgeLogger(__name__)
 
+# Default model for the Forge agent (Ollama local model)
+FORGE_DEFAULT_MODEL = "ollama/nemotron-3-super:cloud"
+
 
 @retry(wait=wait_random_exponential(min=1, max=40), stop=stop_after_attempt(3))
 async def chat_completion_request(

@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional, Union
 import yaml
 from auto_gpt_plugin_template import AutoGPTPluginTemplate
 from colorama import Fore
-from pydantic import Field, validator
+from pydantic.v1 import Field, validator
 
 from autogpt.core.configuration.schema import Configurable, SystemSettings
 from autogpt.core.resource.model_providers.openai import OPEN_AI_CHAT_MODELS
@@ -41,7 +41,8 @@ class Config(SystemSettings, arbitrary_types_allowed=True):
     chat_messages_enabled: bool = True
     # TTS configuration
     speak_mode: bool = False
-    text_to_speech_provider: str = "gtts"
+    text_to_speech_provider: str = "edge_tts"
+    edge_tts_voice: str = "en-US-AndrewNeural"
     streamelements_voice: str = "Brian"
     elevenlabs_voice_id: Optional[str] = None
 
@@ -251,6 +252,7 @@ class ConfigBuilder(Configurable[Config]):
             "openai_functions": os.getenv("OPENAI_FUNCTIONS", "False") == "True",
             "elevenlabs_api_key": os.getenv("ELEVENLABS_API_KEY"),
             "streamelements_voice": os.getenv("STREAMELEMENTS_VOICE"),
+            "edge_tts_voice": os.getenv("EDGE_TTS_VOICE", "en-US-AndrewNeural"),
             "text_to_speech_provider": os.getenv("TEXT_TO_SPEECH_PROVIDER"),
             "github_api_key": os.getenv("GITHUB_API_KEY"),
             "github_username": os.getenv("GITHUB_USERNAME"),
@@ -305,7 +307,7 @@ class ConfigBuilder(Configurable[Config]):
             elif os.getenv("USE_BRIAN_TTS"):
                 default_tts_provider = "streamelements"
             else:
-                default_tts_provider = "gtts"
+                default_tts_provider = "edge_tts"
             config_dict["text_to_speech_provider"] = default_tts_provider
 
         config_dict["plugins_allowlist"] = _safe_split(os.getenv("ALLOWLISTED_PLUGINS"))
@@ -375,32 +377,20 @@ class ConfigBuilder(Configurable[Config]):
 
 
 def check_openai_api_key(config: Config) -> None:
-    """Check if the OpenAI API key is set in config.py or as an environment variable."""
+    """Check if the OpenAI API key (or Ollama placeholder) is set in config."""
     if not config.openai_api_key:
         print(
             Fore.RED
-            + "Please set your OpenAI API key in .env or as an environment variable."
+            + "Please set OPENAI_API_KEY in .env (use 'ollama' if using a local Ollama model)."
             + Fore.RESET
         )
-        print("You can get your key from https://platform.openai.com/account/api-keys")
-        openai_api_key = input(
-            "If you do have the key, please enter your OpenAI API key now:\n"
-        )
-        key_pattern = r"^sk-\w{48}"
-        openai_api_key = openai_api_key.strip()
-        if re.search(key_pattern, openai_api_key):
+        openai_api_key = input("Enter API key (or 'ollama' for local Ollama):\n").strip()
+        if openai_api_key:
             os.environ["OPENAI_API_KEY"] = openai_api_key
             config.openai_api_key = openai_api_key
-            print(
-                Fore.GREEN
-                + "OpenAI API key successfully set!\n"
-                + Fore.YELLOW
-                + "NOTE: The API key you've set is only temporary.\n"
-                + "For longer sessions, please set it in .env file"
-                + Fore.RESET
-            )
+            print(Fore.GREEN + "API key set!\n" + Fore.RESET)
         else:
-            print("Invalid OpenAI API key!")
+            print("No API key provided!")
             exit(1)
 
 

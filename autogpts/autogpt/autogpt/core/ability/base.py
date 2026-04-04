@@ -3,7 +3,7 @@ from pprint import pformat
 from typing import Any, ClassVar
 
 import inflection
-from pydantic import Field
+from pydantic.v1 import Field
 
 from autogpt.core.configuration import SystemConfiguration
 from autogpt.core.planning.simple import LanguageModelConfiguration

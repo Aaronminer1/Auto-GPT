@@ -14,6 +14,22 @@ Embedding = list[float] | list[np.float32] | np.ndarray[Any, np.dtype[np.float32
 TText = Sequence[int]
 """Tokenized text"""
 
+# ---------------------------------------------------------------------------
+# Local embedding model — loaded once, reused for every call.
+# Uses all-MiniLM-L6-v2 (90MB, 384-dim, no network required after first run).
+# ---------------------------------------------------------------------------
+_local_model = None
+
+
+def _get_local_model():
+    global _local_model
+    if _local_model is None:
+        from sentence_transformers import SentenceTransformer
+
+        logger.debug("Loading local embedding model (all-MiniLM-L6-v2)...")
+        _local_model = SentenceTransformer("all-MiniLM-L6-v2")
+    return _local_model
+
 
 @overload
 def get_embedding(input: str | TText, config: Config) -> Embedding:
@@ -28,49 +44,28 @@ def get_embedding(input: list[str] | list[TText], config: Config) -> list[Embedd
 def get_embedding(
     input: str | TText | list[str] | list[TText], config: Config
 ) -> Embedding | list[Embedding]:
-    """Get an embedding from the ada model.
+    """Get embeddings using the local sentence-transformers model.
 
-    Args:
-        input: Input text to get embeddings for, encoded as a string or array of tokens.
-            Multiple inputs may be given as a list of strings or token arrays.
-
-    Returns:
-        List[float]: The embedding.
+    Fully offline — no OpenAI / Ollama API call required.
     """
     multiple = isinstance(input, list) and all(not isinstance(i, int) for i in input)
 
     if isinstance(input, str):
         input = input.replace("\n", " ")
-
         with suppress(NotImplementedError):
             return _get_embedding_with_plugin(input, config)
-
     elif multiple and isinstance(input[0], str):
         input = [text.replace("\n", " ") for text in input]
-
         with suppress(NotImplementedError):
             return [_get_embedding_with_plugin(i, config) for i in input]
 
-    model = config.embedding_model
-    kwargs = {"model": model}
-    kwargs.update(config.get_openai_credentials(model))
-
-    logger.debug(
-        f"Getting embedding{f's for {len(input)} inputs' if multiple else ''}"
-        f" with model '{model}'"
-        + (f" via Azure deployment '{kwargs['engine']}'" if config.use_azure else "")
-    )
-
-    embeddings = embedding_provider.create_embedding(
-        input,
-        **kwargs,
-    ).data
-
-    if not multiple:
-        return embeddings[0]["embedding"]
-
-    embeddings = sorted(embeddings, key=lambda x: x["index"])
-    return [d["embedding"] for d in embeddings]
+    model = _get_local_model()
+    if multiple:
+        vecs = model.encode(list(input), convert_to_numpy=True)
+        return [v.tolist() for v in vecs]
+    else:
+        return model.encode(str(input) if not isinstance(input, str) else input,
+                            convert_to_numpy=True).tolist()
 
 
 def _get_embedding_with_plugin(text: str, config: Config) -> Embedding:

@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from autogpt.config import Config
 
 from .base import VoiceBase
+from .edge_tts_speech import EdgeTTSSpeech
 from .eleven_labs import ElevenLabsSpeech
 from .gtts import GTTSVoice
 from .macos_tts import MacOSTTS
@@ -49,7 +50,10 @@ class TextToSpeechProvider:
             voice_engine = MacOSTTS(config)
         elif tts_provider == "streamelements":
             voice_engine = StreamElementsSpeech(config)
-        else:
+        elif tts_provider == "gtts":
             voice_engine = GTTSVoice(config)
+        else:
+            # Default: Edge TTS with Andrew voice
+            voice_engine = EdgeTTSSpeech(config)
 
-        return GTTSVoice(config), voice_engine
+        return EdgeTTSSpeech(config), voice_engine

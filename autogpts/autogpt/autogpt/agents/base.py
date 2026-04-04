@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from auto_gpt_plugin_template import AutoGPTPluginTemplate
-from pydantic import Field, validator
+from pydantic.v1 import Field, validator
 
 if TYPE_CHECKING:
     from autogpt.config import Config

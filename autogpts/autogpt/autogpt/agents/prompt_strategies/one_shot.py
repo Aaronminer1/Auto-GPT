@@ -321,9 +321,27 @@ class OneShotAgentPromptStrategy(PromptStrategy):
             steps.insert(0, step)
             start = i
 
-        # TODO: summarize remaining
-
-        part = slice(0, start)
+        # Summarize truncated episodes that didn't fit (instead of silently dropping)
+        if start > 0:
+            cache_key = (0, start)
+            if cache_key not in self.config.progress_summaries:
+                truncated = episode_history[0:start]
+                summary_lines = [
+                    f"### Earlier Steps (summarized — {len(truncated)} steps truncated from context)"
+                ]
+                for j, ep in enumerate(truncated):
+                    status = ep.result.status if ep.result else "did_not_finish"
+                    outcome = ""
+                    if ep.result and ep.result.status == "error":
+                        outcome = f": {ep.result.reason[:80]}"
+                    elif ep.result and ep.result.status == "success":
+                        out = str(ep.result)
+                        outcome = f": {out[:80]}" if out else ""
+                    summary_lines.append(
+                        f"- Step {j+1}: `{ep.action.format_call()}` → **{status}**{outcome}"
+                    )
+                self.config.progress_summaries[cache_key] = "\n".join(summary_lines)
+            steps.insert(0, self.config.progress_summaries[cache_key])
 
         return "\n\n".join(steps)
 
@@ -344,8 +362,12 @@ class OneShotAgentPromptStrategy(PromptStrategy):
         )
 
         return (
-            f"Respond strictly with JSON{', and also specify a command to use through a function_call' if use_functions_api else ''}. "
-            "The JSON should be compatible with the TypeScript type `Response` from the following:\n"
+            "IMPORTANT: Your entire response must be a single raw JSON object. "
+            "Do NOT wrap it in markdown code fences (no ```json), "
+            "do NOT include any text before or after the JSON, "
+            "do NOT add explanations or commentary. "
+            f"{'Also specify a command to use through a function_call. ' if use_functions_api else ''}"
+            "The JSON must be compatible with the TypeScript type `Response` from the following:\n"
             f"{response_format}"
         )
 

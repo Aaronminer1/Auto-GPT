@@ -2,7 +2,7 @@ import abc
 import enum
 from typing import TYPE_CHECKING, Type
 
-from pydantic import BaseModel
+from pydantic.v1 import BaseModel
 
 from autogpt.core.configuration import SystemConfiguration, UserConfigurable
 

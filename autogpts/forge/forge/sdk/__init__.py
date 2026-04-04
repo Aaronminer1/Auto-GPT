@@ -5,7 +5,7 @@ core of the Forge.
 from .agent import Agent
 from .db import AgentDB, Base
 from .forge_log import ForgeLogger
-from .llm import chat_completion_request, create_embedding_request, transcribe_audio
+from .llm import chat_completion_request, create_embedding_request, transcribe_audio, FORGE_DEFAULT_MODEL
 from .prompting import PromptEngine
 from .schema import (
     Artifact,

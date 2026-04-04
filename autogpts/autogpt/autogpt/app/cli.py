@@ -72,6 +72,12 @@ import click
     help="Installs external dependencies for 3rd party plugins.",
 )
 @click.option(
+    "--resume",
+    "-r",
+    is_flag=True,
+    help="Resume a previous session: skip memory.clear() and reload the saved task plan.",
+)
+@click.option(
     "--ai-name",
     type=str,
     help="AI name override",
@@ -105,6 +111,7 @@ def main(
     skip_news: bool,
     workspace_directory: str,
     install_plugin_deps: bool,
+    resume: bool,
     ai_name: Optional[str],
     ai_role: Optional[str],
     ai_goal: tuple[str],
@@ -137,6 +144,7 @@ def main(
             ).parent.parent.parent,  # TODO: make this an option
             workspace_directory=workspace_directory,
             install_plugin_deps=install_plugin_deps,
+            resume=resume,
             ai_name=ai_name,
             ai_role=ai_role,
             ai_goals=ai_goal,

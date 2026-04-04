@@ -170,6 +170,10 @@ def check_model(
     config: Config,
 ) -> str:
     """Check if model is available for use. If not, return gpt-3.5-turbo."""
+    # Skip API-based model access check when using a custom base URL (e.g. Ollama)
+    if config.openai_api_base:
+        return model_name
+
     openai_credentials = config.get_openai_credentials(model_name)
     api_manager = ApiManager()
     models = api_manager.get_models(**openai_credentials)

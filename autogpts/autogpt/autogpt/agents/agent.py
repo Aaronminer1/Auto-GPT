@@ -36,6 +36,7 @@ from autogpt.models.action_history import (
 from autogpt.models.command import CommandOutput
 from autogpt.models.context_item import ContextItem
 
+from autogpt.agents.task_planner import TaskPlan
 from .base import BaseAgent, BaseAgentConfiguration, BaseAgentSettings
 from .features.context import ContextMixin
 from .features.watchdog import WatchdogMixin
@@ -44,7 +45,7 @@ from .prompt_strategies.one_shot import (
     OneShotAgentPromptConfiguration,
     OneShotAgentPromptStrategy,
 )
-from .utils.exceptions import AgentException, CommandExecutionError, UnknownCommandError
+from .utils.exceptions import AgentException, CommandExecutionError, TaskComplete, UnknownCommandError
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,9 @@ class Agent(
         self.memory = memory
         """VectorMemoryProvider used to manage the agent's context (TODO)"""
 
+        self.task_plan: Optional[TaskPlan] = None
+        """Structured task plan injected by the planning phase, if any."""
+
         self.created_at = datetime.now().strftime("%Y%m%d_%H%M%S")
         """Timestamp the agent was created; only used for structured debug logging."""
 
@@ -114,6 +118,12 @@ class Agent(
     ) -> ChatPrompt:
         if not extra_messages:
             extra_messages = []
+
+        # Task plan status (injected before clock so it appears early in context)
+        if self.task_plan and not self.task_plan.is_complete:
+            extra_messages.append(
+                ChatMessage.system(self.task_plan.format_status()),
+            )
 
         # Clock
         extra_messages.append(
@@ -246,6 +256,8 @@ class Agent(
                     self.context.add(context_item)
 
                 result = ActionSuccessResult(outputs=return_value)
+            except TaskComplete:
+                raise
             except AgentException as e:
                 result = ActionErrorResult(reason=e.message, error=e)
 
@@ -297,6 +309,8 @@ async def execute_command(
             if inspect.isawaitable(result):
                 return await result
             return result
+        except TaskComplete:
+            raise
         except AgentException:
             raise
         except Exception as e:

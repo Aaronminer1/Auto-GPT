@@ -14,6 +14,14 @@ class AgentException(Exception):
         super().__init__(message, *args)
 
 
+class TaskComplete(Exception):
+    """Raised by the `finish` command to signal graceful agent shutdown."""
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(reason)
+
+
 class ConfigurationError(AgentException):
     """Error caused by invalid, incompatible or otherwise incorrect configuration"""
 

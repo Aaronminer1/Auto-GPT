@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic.v1 import BaseModel
 
 from autogpt.core.ability import (
     AbilityRegistrySettings,

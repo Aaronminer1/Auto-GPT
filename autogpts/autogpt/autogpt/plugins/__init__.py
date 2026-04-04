@@ -13,10 +13,17 @@ from typing import TYPE_CHECKING, List
 from urllib.parse import urlparse
 from zipimport import zipimporter
 
-import openapi_python_client
+try:
+    import openapi_python_client
+    from openapi_python_client.config import Config as OpenAPIConfig
+    _openapi_available = True
+except ImportError:
+    openapi_python_client = None
+    OpenAPIConfig = None
+    _openapi_available = False
+
 import requests
 from auto_gpt_plugin_template import AutoGPTPluginTemplate
-from openapi_python_client.config import Config as OpenAPIConfig
 
 if TYPE_CHECKING:
     from autogpt.config import Config

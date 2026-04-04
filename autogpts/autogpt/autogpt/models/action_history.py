@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Iterator, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic.v1 import BaseModel
 
 from autogpt.prompts.utils import format_numbered_list, indent
 

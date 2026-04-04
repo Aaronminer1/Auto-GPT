@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from autogpt.agents.agent import Agent
 
+from autogpt.agents.utils.exceptions import InvalidArgumentError, TaskComplete
 from autogpt.agents.features.context import get_agent_context
-from autogpt.agents.utils.exceptions import InvalidArgumentError
 from autogpt.command_decorator import command
 from autogpt.core.utils.json_schema import JSONSchema
 
@@ -21,29 +21,21 @@ logger = logging.getLogger(__name__)
 
 @command(
     "finish",
-    "Use this to shut down once you have accomplished all of your goals,"
+    "Use this to shut down once you have accomplished ALL of your goals,"
     " or when there are insurmountable problems that make it impossible"
     " for you to finish your task.",
     {
         "reason": JSONSchema(
             type=JSONSchema.Type.STRING,
-            description="A summary to the user of how the goals were accomplished",
+            description="A detailed summary of what was accomplished and the final state of all goals",
             required=True,
         )
     },
 )
 def finish(reason: str, agent: Agent) -> None:
-    """
-    A function that takes in a string and exits the program
-
-    Parameters:
-        reason (str): A summary to the user of how the goals were accomplished.
-    Returns:
-        A result string from create chat completion. A list of suggestions to
-            improve the code.
-    """
-    logger.info(reason, extra={"title": "Shutting down...\n"})
-    quit()
+    """Signal task completion. Raises TaskComplete which is caught by the main loop."""
+    logger.info(reason, extra={"title": "Task Complete\n"})
+    raise TaskComplete(reason)
 
 
 @command(

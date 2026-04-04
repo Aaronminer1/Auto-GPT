@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from auto_gpt_plugin_template import AutoGPTPluginTemplate
-from openai.util import logger as openai_logger
+
+openai_logger = logging.getLogger("openai")  # openai 1.x/2.x removed openai.util
 
 if TYPE_CHECKING:
     from autogpt.config import Config

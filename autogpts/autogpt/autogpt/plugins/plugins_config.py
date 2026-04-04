@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Union
 
 import yaml
-from pydantic import BaseModel
+from pydantic.v1 import BaseModel
 
 from autogpt.plugins.plugin_config import PluginConfig
 

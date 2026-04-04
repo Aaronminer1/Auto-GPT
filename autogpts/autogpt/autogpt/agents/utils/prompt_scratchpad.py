@@ -1,7 +1,7 @@
 import logging
 from typing import Callable
 
-from pydantic import BaseModel, Field
+from pydantic.v1 import BaseModel, Field
 
 from autogpt.core.resource.model_providers.schema import CompletionModelFunction
 from autogpt.core.utils.json_schema import JSONSchema

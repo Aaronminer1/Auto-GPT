@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 import yaml
-from pydantic import BaseModel
+from pydantic.v1 import BaseModel
 
 from autogpt.logs.helpers import request_user_double_check
 from autogpt.utils import validate_yaml_file
